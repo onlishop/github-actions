@@ -1,0 +1,19 @@
+{
+  "name": "onlishop-version-action",
+  "version": "1.0.0",
+  "description": "",
+  "main": "src/main/main.ts",
+  "scripts": {
+    "build": "bunx --bun esbuild --minify --keep-names --platform=node --format=cjs --bundle src/main/main.ts --outdir=dist/main"
+  },
+  "keywords": [],
+  "author": "",
+  "dependencies": {
+    "@actions/core": "^1.11.1",
+    "@octokit/rest": "^22.0.0"
+  },
+  "devDependencies": {
+    "@types/semver": "^7.7.1",
+    "typescript": "^5.9.2"
+  }
+}

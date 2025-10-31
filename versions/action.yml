@@ -1,0 +1,33 @@
+name: versions
+description: "Action to get the first and latest versions of the current and previous (LTS) major"
+branding:
+    color: "blue"
+    icon: "download"
+
+inputs:
+    major:
+        description: Current major prefix like v6.7.
+        default: v6.7.
+    lts-major:
+        description: LTS major prefix like v6.6.
+        default: v6.6.
+
+outputs:
+    first-version:
+        description: The first version of the current major
+    latest-version:
+        description: The latest version of the current major
+    next-minor:
+        description: The next minor version
+    next-patch:
+        description: The next patch version
+    lts-first-version:
+        description: The first version of the LTS major
+    lts-latest-version:
+        description: The latest version of the LTS major
+    lts-next-patch:
+        description: The next patch version of the LTS major
+
+runs:
+    using: "node22"
+    main: "dist/main/main.js"
