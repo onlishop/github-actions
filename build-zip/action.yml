@@ -1,0 +1,54 @@
+name: "Build Extension Zip"
+description: "Builds the extension and uploads a zip of it"
+author: "onlishop AG"
+branding:
+  color: "blue"
+  icon: "download"
+
+inputs:
+  extensionName:
+    description: "Your extension name"
+    required: true
+  path:
+    description: "Path to your bundle"
+    required: false
+    default: "."
+  skipCheckout:
+    description: "Skip the checkout step"
+    required: false
+    default: 'false'
+  disableGit:
+    description: "Use the source folder as it is"
+    required: false
+    default: "false"
+
+outputs:
+  artifact-id:
+    description: A unique identifier for the artifact that was just uploaded
+    value: ${{ steps.upload.outputs.artifact-id }}
+  artifact-url:
+    description: A download URL for the artifact that was just uploaded
+    value: ${{ steps.upload.outputs.artifact-url }}
+
+runs:
+  using: "composite"
+  steps:
+    - uses: actions/checkout@v4
+      if: inputs.skipCheckout == 'false'
+    - name: Install onlishop-cli
+      uses: onlishop/onlishop-cli-action@v1
+    - name: Build
+      shell: bash
+      run: onlishop-cli extension zip "${{ inputs.path }}" ${{ (inputs.disableGit == 'false' && format('--git-commit {0}', github.sha)) || '--disable-git' }} --release
+    - name: Rename
+      shell: bash
+      run: mv ${{ inputs.extensionName }}-${{ github.sha }}.zip ${{ inputs.extensionName }}.zip
+    - name: Validate
+      shell: bash
+      run: onlishop-cli extension validate ${{ inputs.extensionName }}.zip
+    - name: Upload artifact
+      uses: actions/upload-artifact@v4
+      id: upload
+      with:
+        name: ${{ inputs.extensionName }}.zip
+        path: ${{ inputs.extensionName }}.zip

@@ -1,0 +1,39 @@
+name: "PHPUnit"
+description: "phpunit"
+author: "onlishop AG"
+branding:
+  color: "blue"
+  icon: "download"
+
+inputs:
+  extensionName:
+    description: "Your extension name"
+    required: true
+  uploadCoverage:
+    description: "Upload coverage to codecov. Requires token in CODECOV_TOKEN"
+    required: false
+    default: ""
+  filterName:
+    description: "PHPUnit 11 requires a testsuite filter"
+    required: false
+    default: ""
+
+runs:
+  using: "composite"
+  steps:
+    - name: Run PHPUnit
+      shell: bash
+      working-directory: custom/plugins/${{ inputs.extensionName }}
+      run: |
+        if [ -n "${{ inputs.filterName }}" ]; then
+          ${{ github.workspace }}/vendor/bin/phpunit --testsuite ${{ inputs.filterName }} --coverage-clover clover.xml
+        else
+          ${{ github.workspace }}/vendor/bin/phpunit --coverage-clover clover.xml
+        fi
+    - name: Upload Coverage
+      if: inputs.uploadCoverage == true
+      uses: codecov/codecov-action@v4
+      with:
+        root_dir: ${{ github.workspace }}/custom/plugins/${{ inputs.extensionName }}
+        working-directory: ${{ github.workspace }}/custom/plugins/${{ inputs.extensionName }}
+        files: ./clover.xml

@@ -1,0 +1,112 @@
+name: "Downstream workflow"
+description: "Trigger a downstream worflow in another repository"
+author: "onlishop AG"
+branding:
+  color: "blue"
+  icon: "download"
+
+inputs:
+  repo:
+    description: "Downstream repo"
+    required: true
+  token-scope:
+    description: "Scrope for the sts token"
+    required: false
+  workflow:
+    description: "Workflow to dispatch in downstream"
+    required: true
+  ref:
+    description: "Downstream ref, automatically detects matching refs with .auto"
+    required: false
+    default: ".auto"
+  refFallback:
+    description: Fallback ref in case there's no matching branch. Only used in .auto mode
+    required: false
+    default: trunk
+  env:
+    description: |
+      Environment variables to pass to the downstream workflow
+
+      Example:
+      ```shell
+      PLATFORM_BRANCH=trunk
+      FOO=bar
+      ```
+    required: false
+    default: ""
+  identity:
+    description: "Identity for octo-sts"
+    required: true
+    default: "upstream"
+  token:
+    description: Token used to authenticate with the downstream repo. If not provided octo-sts is used
+    required: false
+    default: ""
+  timeout:
+    description: Timeout for the downstream
+    required: false
+    default: "30m"
+  poll_interval:
+    description: Poll interval for checking the status. By default 2 minutes
+    default: "2m"
+
+outputs:
+  run_id:
+    description: The run id of the downstream workflow
+    value: "${{ steps.wait.downstream_run_id }}"
+  run_url:
+    description: The api url of the downstream workflow
+    value: "${{ steps.wait.downstream_run_url }}"
+
+runs:
+  using: "composite"
+  steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+    - uses: octo-sts/action@v1.0.0
+      if: ${{ ! inputs.token }}
+      id: sts
+      with:
+        scope: ${{ inputs.token-scope || inputs.repo }}
+        identity: ${{ inputs.identity }}
+
+    - shell: bash
+      run: |
+        git config "http.https://github.com/".extraheader "AUTHORIZATION: basic $(echo -n "x-access-token:${{ inputs.token || steps.sts.outputs.token }}" | base64 -w0)"
+
+    - uses: onlishop/github-actions/onlishop-version@main
+      env:
+        GH_TOKEN: ${{ inputs.token || steps.sts.outputs.token }}
+      with:
+        fallback: ${{ inputs.refFallback }}
+        repo: ${{ inputs.repo }}
+      id: version
+      if: ${{ inputs.ref == '.auto' }}
+
+    - name: Trigger Downstream
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.token || steps.sts.outputs.token }}
+        UPSTREAM_DATA: |
+          {
+            "upstream": {
+              "id": "${{ github.run_id }}",
+              "ref": "${{ github.head_ref || github.ref }}",
+              "repo": "${{ github.repository }}",
+              "github-token": "${{ github.token }}",
+              "url": "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            },
+            "env": "${{ inputs.env }}"
+          }
+        WORKFLOW: ${{ inputs.workflow }}
+        REPO: ${{ inputs.repo }}
+        REF: ${{ steps.version.outputs.onlishop-version || inputs.ref }}
+      run: gh workflow run "$WORKFLOW" --repo "$REPO" --ref "$REF" -f upstream_data="$UPSTREAM_DATA"
+    - name: Wait for conclusion
+      shell: bash
+      id: wait
+      env:
+        GH_TOKEN: ${{ inputs.token || steps.sts.outputs.token }}
+        WORKFLOW: ${{ inputs.workflow }}
+        REPO: ${{ inputs.repo }}
+      run: timeout "${{ inputs.timeout }}" ${GITHUB_ACTION_PATH}/wait.bash "$REPO" "$WORKFLOW" "${{ github.run_id }}" "${{ inputs.poll_interval }}"

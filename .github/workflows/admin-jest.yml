@@ -1,0 +1,76 @@
+name: Jest
+on:
+  workflow_call:
+    inputs:
+      extensionName:
+        description: "Your extension name"
+        required: true
+        type: string
+      onlishopVersion:
+        description: |
+          With the default `.auto`, the workflow tries to find a onlishop version using the onlishop-version action.
+
+          For example, if the current ref is next-1234, it will try to find the ref next-1234 in onlishop/onlishop. If there's no matching ref, it will use onlishopVersionFallback
+        required: false
+        type: string
+        default: ".auto"
+      onlishopVersionFallback:
+        required: false
+        type: string
+        default: trunk
+      onlishop-repository:
+        description: The onlishop repository to checkout
+        type: string
+        default: onlishop/onlishop
+      composerRootVersion:
+        required: false
+        type: string
+        default: ".auto"
+      uploadCoverage:
+        description: "Upload coverage to codecov"
+        required: false
+        type: boolean
+        default: false
+    secrets:
+      codecovToken:
+        description: "Codecov token"
+        required: false
+
+jobs:
+  run:
+    name: Jest
+    runs-on: ubuntu-latest
+    steps:
+      - name: Setup Extension
+        uses: onlishop/github-actions/setup-extension@main
+        with:
+          onlishopVersion: ${{ inputs.onlishopVersion }}
+          onlishopVersionFallback: ${{ inputs.onlishopVersionFallback }}
+          onlishop-repository: ${{ inputs.onlishop-repository }}
+          extensionName: ${{ github.event.repository.name }}
+          composerRootVersion: ${{ inputs.composerRootVersion }}
+          install: true
+          install-admin: true
+          env: prod
+          extraRepositories: |
+            {
+              "${{ github.event.repository.name }}": {
+                "type": "path",
+                "url": "custom/plugins/${{ github.event.repository.name }}",
+                "symlink": true
+              }
+            }
+
+      - name: Jest Unit Tests
+        working-directory: custom/plugins/${{ inputs.extensionName }}/src/Resources/app/administration
+        run: npm run unit -- --coverage
+
+      - name: Upload Coverage
+        if: inputs.uploadCoverage == true
+        uses: codecov/codecov-action@v5
+        env:
+          CODECOV_TOKEN: ${{ secrets.codecovToken }}
+        with:
+          root_dir: ${{ github.workspace }}/custom/plugins/${{ inputs.extensionName }}
+          working-directory: ${{ github.workspace }}/custom/plugins/${{ inputs.extensionName }}
+          directory: ${{ github.workspace }}/custom/plugins/${{ inputs.extensionName }}/src/Resources/app/administration

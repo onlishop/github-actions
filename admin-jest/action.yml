@@ -1,0 +1,31 @@
+name: "Admin jest"
+description: "Run administration jest tests"
+author: "onlishop AG"
+branding:
+  color: "blue"
+  icon: "download"
+
+inputs:
+  extensionName:
+    description: "Your extension name"
+    required: true
+  uploadCoverage:
+    description: "Upload coverage to codecov. Requires token in CODECOV_TOKEN"
+    required: false
+    default: "false"
+
+runs:
+  using: "composite"
+  steps:
+    - name: Jest Unit Tests
+      shell: bash
+      working-directory: custom/plugins/${{ inputs.extensionName }}/src/Resources/app/administration
+      run: npm run unit -- --coverage
+
+    - name: Upload Coverage
+      if: inputs.uploadCoverage == true
+      uses: codecov/codecov-action@v4
+      with:
+        root_dir: ${{ github.workspace }}/custom/plugins/${{ inputs.extensionName }}
+        working-directory: ${{ github.workspace }}/custom/plugins/${{ inputs.extensionName }}
+        directory: ${{ github.workspace }}/custom/plugins/${{ inputs.extensionName }}/src/Resources/app/administration

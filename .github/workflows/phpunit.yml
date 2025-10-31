@@ -1,0 +1,118 @@
+name: PHPUnit
+on:
+  workflow_call:
+    inputs:
+      extensionName:
+        description: "Your extension name"
+        required: true
+        type: string
+      onlishopVersion:
+        description: |
+          With the default `.auto`, the workflow tries to find a onlishop version using the onlishop-version action.
+
+          For example, if the current ref is next-1234, it will try to find the ref next-1234 in onlishop/onlishop. If there's no matching ref, it will use onlishopVersionFallback
+        required: false
+        type: string
+        default: ".auto"
+      onlishopVersionFallback:
+        required: false
+        type: string
+        default: trunk
+      onlishop-repository:
+        description: The onlishop repository to checkout
+        type: string
+        default: onlishop/onlishop
+      phpVersion:
+        required: false
+        type: string
+        default: "8.2"
+      mysqlVersion:
+        required: false
+        type: string
+        default: "builtin"
+      composerRootVersion:
+        required: false
+        type: string
+        default: ".auto"
+      dependencies:
+        required: false
+        type: string
+      uploadCoverage:
+        description: "Upload coverage to codecov"
+        required: false
+        type: boolean
+        default: false
+      runner:
+        required: false
+        type: string
+        default: ubuntu-latest
+      filterName:
+        description: "PHPUnit 11 requires a testsuite filter"
+        required: false
+        type: string
+        default: ""
+    secrets:
+      codecovToken:
+        description: "Codecov token"
+        required: false
+      env:
+        description: "ENV variables to substitute in to plugin repository urls"
+        required: false
+
+jobs:
+  run:
+    name: Tests
+    runs-on: ${{ inputs.runner }}
+    steps:
+      - uses: onlishop/github-actions/onlishop-version@main
+        with:
+          fallback: ${{ inputs.onlishopVersionFallback }}
+          repo: ${{ inputs.onlishop-repository }}
+        id: version
+        if: ${{ inputs.onlishopVersion == '.auto' || inputs.onlishopVersion == '' }}
+      - name: Setup Onlishop
+        uses: onlishop/setup-onlishop@main
+        with:
+          onlishop-version: ${{ steps.version.outputs.onlishop-version || inputs.onlishopVersion }}
+          onlishop-repository: ${{ inputs.onlishop-repository }}
+          php-version: ${{ inputs.phpVersion }}
+          mysql-version: ${{ inputs.mysqlVersion }}
+          composer-root-version: ${{ inputs.composerRootVersion }}
+          php-extensions: pcov
+      - name: Clone Extension
+        uses: actions/checkout@v5
+        with:
+          path: custom/plugins/${{ inputs.extensionName }}
+      - name: Clone Dependencies
+        if: inputs.dependencies
+        env:
+          DEPS: ${{ inputs.dependencies }}
+        run: |
+          IFS=$'\n'
+          for token in $(echo "${{secrets.env}}"); do
+            export $token
+          done
+          for dep in $(echo "$DEPS" | envsubst | jq -c '.[]'); do
+            dep_name=$(echo "$dep" | jq -r '.name')
+            dep_repo=$(echo "$dep" | jq -r '.repo')
+            git clone "$dep_repo" "custom/plugins/$dep_name"
+          done
+      - name: Install extension with Composer
+        run: composer require $(composer -d custom/plugins/${{ inputs.extensionName }} config name)
+      - name: Run PHPUnit
+        working-directory: custom/plugins/${{ inputs.extensionName }}
+        run: |
+          if [ -n "${{ inputs.filterName }}" ]; then
+            ${{ github.workspace }}/vendor/bin/phpunit --testsuite ${{ inputs.filterName }} --coverage-clover clover.xml
+          else
+            ${{ github.workspace }}/vendor/bin/phpunit --coverage-clover clover.xml
+          fi
+      - name: Upload Coverage
+        if: inputs.uploadCoverage == true
+        uses: codecov/codecov-action@v5
+        env:
+          CODECOV_TOKEN: ${{ secrets.codecovToken }}
+        with:
+          root_dir: ${{ github.workspace }}/custom/plugins/${{ inputs.extensionName }}
+          working-directory: ${{ github.workspace }}/custom/plugins/${{ inputs.extensionName }}
+          files: ./clover.xml

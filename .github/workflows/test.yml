@@ -1,0 +1,77 @@
+name: Test actions
+on:
+  pull_request:
+
+jobs:
+    onlishop-version-fallback:
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@v5
+            - id: version
+              uses: ./onlishop-version
+              with:
+                fallback: ""
+            - name: Check onlishop-version is never empty 
+              run: |
+                ONLISHOP_VERSION="${{ steps.version.outputs.onlishop-version }}"
+                echo "onlishop-version: '${ONLISHOP_VERSION}'"
+                if [[ -z "${ONLISHOP_VERSION}" ]]; then
+                    echo 'onlishop-version should not be empty'
+                    exit 1
+                fi
+    onlishop-version:
+        runs-on: ubuntu-latest
+        strategy:
+            matrix:
+                test-case:
+                    - ref: trunk
+                      base-ref: "6.7.99.99"
+                      expected-version: "trunk"
+                    - ref: does-not-exist
+                      head-ref: trunk
+                      base-ref: "6.7.99.99"
+                      expected-version: "trunk"
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@v5
+            - name: Test onlishop-version
+              id: version
+              uses: ./onlishop-version
+              with:
+                ref: ${{ matrix.test-case.ref }}
+                base-ref: ${{ matrix.test-case.base-ref }}
+                head-ref: ${{ matrix.test-case.head-ref || matrix.test-case.ref }}
+                repo: onlishop/onlishop
+                fallback: 'not-found'
+            - name: Check onlishop-version matches expected version
+              run: |
+                ONLISHOP_VERSION="${{ steps.version.outputs.onlishop-version }}"
+                EXPECTED_VERSION="${{ matrix.test-case.expected-version }}"
+                echo "onlishop-version: '${ONLISHOP_VERSION}'"
+                echo "expected-version: '${EXPECTED_VERSION}'"
+                if [[ "${ONLISHOP_VERSION}" != "${EXPECTED_VERSION}" ]]; then
+                    echo "onlishop-version should be '${EXPECTED_VERSION}' but got '${ONLISHOP_VERSION}'"
+                    exit 1
+                fi
+            - name: Test onlishop-version with refs/heads/
+              id: version-heads
+              uses: ./onlishop-version
+              if: ${{ matrix.test-case.base-ref != ' ' }}
+              with:
+                ref: refs/heads/${{ matrix.test-case.ref }}
+                base-ref: refs/heads/${{ matrix.test-case.base-ref }}
+                head-ref: refs/heads/${{ matrix.test-case.head-ref || matrix.test-case.ref }}
+                repo: onlishop/onlishop
+                fallback: 'not-found'
+            - name: Check onlishop-version matches expected version
+              if: ${{ matrix.test-case.base-ref != ' ' }}
+              run: |
+                ONLISHOP_VERSION="${{ steps.version-heads.outputs.onlishop-version }}"
+                EXPECTED_VERSION="${{ matrix.test-case.expected-version }}"
+                echo "onlishop-version: '${ONLISHOP_VERSION}'"
+                echo "expected-version: '${EXPECTED_VERSION}'"
+                if [[ "${ONLISHOP_VERSION}" != "${EXPECTED_VERSION}" ]]; then
+                    echo "onlishop-version should be '${EXPECTED_VERSION}' but got '${ONLISHOP_VERSION}'"
+                    exit 1
+                fi

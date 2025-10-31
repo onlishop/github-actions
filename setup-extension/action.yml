@@ -1,0 +1,301 @@
+name: "Setup extension"
+description: "Checkout onlishop and extension. Optionally, install dependencies and setup db"
+author: "onlishop AG"
+branding:
+  color: "blue"
+  icon: "download"
+
+inputs:
+  extensionName:
+    description: "Your extension name"
+    required: true
+  extensionRef:
+    description: "The branch/tag to checkout"
+    required: false
+  onlishopVersion:
+    description: |
+      With the default `.auto`, the workflow tries to find a onlishop version using the onlishop-version action.
+
+      For example, if the current ref is next-1234, it will try to find the ref next-1234 in onlishop/onlishop. If there's no matching ref, it will use onlishopVersionFallback
+    required: false
+    default: ".auto"
+  onlishopVersionFallback:
+    description: Fallback version in case there's no matching branch
+    required: false
+    default: trunk
+  onlishop-repository:
+    description: The onlishop repository to checkout
+    required: true
+    default: onlishop/onlishop
+  onlishop-github-token:
+    description: Token used for checking out the onlishop repository
+    required: true
+    default: ${{ github.token }}
+  phpVersion:
+    description: PHP version to use
+    required: false
+    default: "8.2"
+  mysqlVersion:
+    description: Mysql image to use or buildin to use the builtin mysql
+    required: false
+    default: "builtin"
+  node-version:
+    description: nodejs version to use
+    required: false
+    default: "20.x"
+  npm-version:
+    description: npm version to use
+    required: false
+    default: ""
+  composerRootVersion:
+    description: "The COMPOSER_ROOT_VERSION that should be set"
+    required: false
+    default: ".auto"
+
+  dependencies:
+    description: JSON list defining dependencies
+    required: false
+
+  extraRepositories:
+    description: |
+      Additional composer repositories
+      Example:
+        {
+          "customRepo": {
+            "type": "vcs",
+            "url": "https://my-custom-repo.example.test/foo/bar.git"
+          }
+        }
+    default: "{}"
+
+  install:
+    description: Whether to install Onlishop or not
+    required: false
+    default: ""
+
+  install-admin:
+    description: Whether to install administration npm dependencies
+    required: false
+    default: ""
+
+  install-storefront:
+    description: Whether to install storefront npm dependencies
+    required: false
+    default: ""
+
+  skip-js-build:
+    description: Whether to skip the js build step. Default is controller by install-admin and install-storefront
+    required: false
+    default: "false"
+
+  env:
+    description: Environment for Onlishop
+    required: false
+    default: "test"
+
+  keep-composer-tools:
+    description: "Keep Onlishop Composer tools (PHPStan, ECS, BC-Checker)"
+    required: false
+    default: "false"
+
+  extension-zip:
+    description: "Artifact (extension zip archive) to download; Setting this will prevent a checkout of the extension and download the referenced archive instead"
+    required: false
+
+  with-submodules:
+    description: "Checkout including all submodules"
+    required: false
+    default: "false"
+
+runs:
+  using: "composite"
+  steps:
+    - uses: onlishop/github-actions/onlishop-version@main
+      with:
+        fallback: ${{ inputs.onlishopVersionFallback }}
+        repo: ${{ inputs.onlishop-repository }}
+        onlishop-github-token: ${{ inputs.onlishop-github-token }}
+      id: version
+      if: ${{ inputs.onlishopVersion == '.auto' || inputs.onlishopVersion == '' }}
+
+    - name: Setup Onlishop
+      uses: onlishop/setup-onlishop@main
+      with:
+        onlishop-version: ${{ steps.version.outputs.onlishop-version || inputs.onlishopVersion }}
+        onlishop-repository: ${{ inputs.onlishop-repository  || 'onlishop/onlishop' }}
+        onlishop-github-token: ${{ inputs.onlishop-github-token }}
+        php-version: ${{ inputs.phpVersion }}
+        mysql-version: ${{ inputs.mysqlVersion }}
+        node-version: ${{ inputs.node-version }}
+        npm-version: ${{ inputs.npm-version }}
+        composer-root-version: ${{ inputs.composerRootVersion }}
+        install: ${{ inputs.install }}
+        install-admin: ${{ inputs.install-admin }}
+        install-storefront: ${{ inputs.install-storefront }}
+        skip-js-build: ${{ inputs.skip-js-build }}
+        keep-composer-tools: ${{ inputs.keep-composer-tools }}
+        env: ${{ inputs.env }}
+
+    - name: Clone Extension
+      if: ${{ ! inputs.extension-zip }}
+      uses: actions/checkout@v4
+      with:
+        ref: ${{ inputs.extensionRef || github.ref }}
+        path: custom/plugins/${{ inputs.extensionName }}
+        submodules: ${{ inputs.with-submodules == 'false' && false || 'recursive'  }}
+
+    - name: Download extension zip
+      if: ${{ inputs.extension-zip }}
+      uses: actions/download-artifact@v4
+      with:
+        name: ${{ inputs.extension-zip }}
+        path: custom/plugins/${{ inputs.extensionName }}
+
+    - name: Extract extension zip if needed
+      if: ${{ inputs.extension-zip }}
+      shell: bash
+      run: |
+        unzip -o "custom/plugins/${{ inputs.extensionName }}/*.zip" "${{ inputs.extensionName }}/*" -d "custom/plugins/"
+        rm -f "custom/plugins/${{ inputs.extensionName }}/*.zip"
+
+    - name: Determine whether we are dealing with a plugin or an app
+      shell: bash
+      env:
+        IS_PLUGIN: ${{ hashFiles(format('custom/plugins/{0}/composer.json', inputs.extensionName)) != '' }}
+        IS_APP: ${{ hashFiles(format('custom/plugins/{0}/manifest.xml', inputs.extensionName)) != '' }}
+      run: |-
+        echo "IS_PLUGIN=${IS_PLUGIN}" >> $GITHUB_ENV
+        echo "IS_APP=${IS_APP}" >> $GITHUB_ENV
+
+        if [ "${IS_PLUGIN}" == "false" ] && [ "${IS_APP}" == "false" ]; then
+          ls -lah custom/plugins/${{ inputs.extensionName }}
+          echo "Neither a plugin nor an app found at custom/plugins/${{ inputs.extensionName }}. Exiting."
+          exit 1
+        fi
+
+    - name: Move if the extension is an app
+      if: ${{ env.IS_APP == 'true' }}
+      shell: bash
+      run: |
+        mkdir -p custom/apps
+        mv custom/plugins/${{ inputs.extensionName }} custom/apps/${{ inputs.extensionName }}
+
+    - name: Make composer config adjustments
+      if: ${{ env.IS_PLUGIN == 'true' }}
+      shell: bash
+      run: |
+        composer config prefer-stable true
+        composer config minimum-stability dev
+
+        AUTOLOAD_DEV="$(jq '."autoload-dev"."psr-4" | to_entries | map({"key": .key, "value": "custom/plugins/${{ inputs.extensionName }}/\(.value)"}) | from_entries' < custom/plugins/${{ inputs.extensionName }}/composer.json)"
+        jq -s '.[0] * {"repositories": .[1]} * {"autoload-dev": {"psr-4": .[2]}}' composer.json <(echo '${{ inputs.extraRepositories }}') <(echo "$AUTOLOAD_DEV") > composer.json.new
+        mv composer.json.new composer.json
+
+    - name: Clone Dependencies
+      shell: bash
+      if: inputs.dependencies
+      env:
+        DEPS: ${{ inputs.dependencies }}
+        REF: ${{ inputs.onlishopVersion }}
+        FALLBACK: ${{ inputs.onlishopVersionFallback }}
+      run: |
+        for dep in $(echo "$DEPS" | envsubst | jq -c '.[]'); do
+          dep_name=$(echo "$dep" | jq -r '.name')
+          dep_repo=$(echo "$dep" | jq -r '.repo')
+          dep_branch=$(echo "$dep" | jq -r '.branch // empty')
+          dep_token=$(echo "$dep" | jq -r '.token // empty')
+          if [ -n "${dep_token}" ]; then
+            # if a custom token is provided use this token to clone
+            git config --global "http.${dep_repo}/.extraheader" "AUTHORIZATION: basic $(echo -n "x-access-token:${dep_token}" | base64)"
+          fi
+
+          git clone "$dep_repo" "custom/plugins/$dep_name"
+          
+          if [ -n "${dep_branch}" ]; then
+            if [ "${dep_branch}" = ".auto" ]; then
+              REPO="$(echo "${dep_repo}")" "${GITHUB_ACTION_PATH}/../onlishop-version/onlishop-version.bash"
+              dep_branch=$(cat "$GITHUB_OUTPUT" | grep "^onlishop-version=" | cut -d'=' -f2)
+            fi
+            git -C custom/plugins/${dep_name} checkout ${dep_branch}
+          fi
+        done
+
+    - name: Install dependencies with Composer
+      if: ${{ inputs.dependencies && env.IS_PLUGIN == 'true' }}
+      env:
+        DEPS: ${{ inputs.dependencies }}
+      shell: bash
+      run: |
+        IFS=$'\n'
+        for dep in $(echo "$DEPS" | envsubst | jq -c '.[]'); do
+          dep_name=$(echo "$dep" | jq -r '.name')
+          composer require $(composer -d "custom/plugins/$dep_name" config name)
+        done
+
+    - name: Install extension with Composer
+      if: ${{ env.IS_PLUGIN == 'true' }}
+      shell: bash
+      run: composer require $(composer -d custom/plugins/${{ inputs.extensionName }} config name)
+
+    - name: Refresh Plugins
+      if: ${{ inputs.install && env.IS_PLUGIN == 'true' }}
+      shell: bash
+      run: php bin/console plugin:refresh
+
+    - name: Install extension dependencies
+      if: ${{ inputs.install && inputs.dependencies && env.IS_PLUGIN == 'true' }}
+      shell: bash
+      env:
+        DEPS: ${{ inputs.dependencies }}
+      run: |
+        IFS=$'\n'
+        for dep in $(echo "$DEPS" | envsubst | jq -c '.[]'); do
+          dep_name=$(echo "$dep" | jq -r '.name')
+          bin/console plugin:install --activate $dep_name
+        done
+
+    - name: Install Plugin
+      if: ${{ inputs.install && env.IS_PLUGIN == 'true' }}
+      shell: bash
+      run: php bin/console plugin:install --activate ${{ inputs.extensionName }}
+
+    # TODO: install deps for all bundles (bin/ci bundle:dump -> foreach bundle in var/plugins.json)
+    - name: Install extension admin deps
+      if: ${{ inputs.install-admin }}
+      shell: bash
+      run: |
+        if [[ -r "custom/plugins/${{ inputs.extensionName }}/src/Resources/app/administration/package.json" ]]; then
+          (cd "custom/plugins/${{ inputs.extensionName }}/src/Resources/app/administration/" && npm ci --no-audit --no-fund --prefer-offline)
+        fi
+
+    - name: Install app
+      if: ${{ inputs.install && env.IS_APP == 'true' }}
+      shell: bash
+      run: |-
+        bin/console app:refresh -n -a ${{ inputs.extensionName }}
+
+    - name: Install storefront deps
+      if: ${{ inputs.install-storefront }}
+      shell: bash
+      working-directory: src/Storefront/Resources/app/storefront
+      run: npm ci --no-audit --no-fund --prefer-offline
+
+    # TODO: install deps for all bundles
+    - name: Install extension storefront deps
+      if: ${{ inputs.install-storefront }}
+      shell: bash
+      run: |
+        if [[ -r "custom/plugins/${{ inputs.extensionName }}/src/Resources/app/storefront/package.json" ]]; then
+          (cd "custom/plugins/${{ inputs.extensionName }}/src/Resources/app/storefront/" && npm ci --no-audit --no-fund --prefer-offline)
+        fi
+
+    - name: Prepare Jest environment
+      if: ${{ inputs.install && inputs.install-admin }}
+      shell: bash
+      working-directory: src/Administration/Resources/app/administration
+      run: npm run unit-setup --if-present
+
+    - name: Entity schema
+      if: ${{ inputs.install && inputs.install-admin }}
+      shell: bash
+      run: composer admin:generate-entity-schema-types
