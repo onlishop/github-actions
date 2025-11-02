@@ -29,5 +29,5 @@ outputs:
         description: The next patch version of the LTS major
 
 runs:
-    using: "node22"
+    using: "node20"
     main: "dist/main/main.js"

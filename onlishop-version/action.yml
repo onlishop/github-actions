@@ -36,5 +36,5 @@ outputs:
     description: The matching Onlishop version or fallback
 
 runs:
-  using: "node22"
+  using: "node20"
   main: "dist/main/index.js"
