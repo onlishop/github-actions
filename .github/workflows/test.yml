@@ -7,7 +7,7 @@ jobs:
         runs-on: ubuntu-latest
         steps:
             - name: Checkout code
-              uses: actions/checkout@v5
+              uses: actions/checkout@v6
             - id: version
               uses: ./onlishop-version
               with:
@@ -34,7 +34,7 @@ jobs:
                       expected-version: "trunk"
         steps:
             - name: Checkout code
-              uses: actions/checkout@v5
+              uses: actions/checkout@v6
             - name: Test onlishop-version
               id: version
               uses: ./onlishop-version
