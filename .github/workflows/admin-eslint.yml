@@ -35,12 +35,12 @@ jobs:
         id: version
         if: ${{ inputs.onlishopVersion == '.auto' || inputs.onlishopVersion == '' }}
       - name: Clone Onlishop
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
         with:
           repository: ${{ inputs.onlishop-repository || 'onlishop/onlishop' }}
           ref: ${{ steps.version.outputs.onlishop-version || inputs.onlishopVersion }}
       - name: Clone Extension
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
         with:
           path: custom/plugins/${{ inputs.extensionName }}
 
